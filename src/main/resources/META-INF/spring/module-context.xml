@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:batch="http://www.springframework.org/schema/batch"
+	xsi:schemaLocation="
+	http://www.springframework.org/schema/batch http://www.springframework.org/schema/batch/spring-batch.xsd
+	http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<description>Example job to get you started. It provides a skeleton for a typical batch application.</description>
+ 	
+ 	<!-- Exception발생이 skip-limit 에 도달할경우 job fail, FileNotFoundException이 발생하면 무조건 job fail -->
+ 	<!-- job fail이 여러번 발생하여 재실행 되더라도 start-limit에 해당하는 숫자까지만 재실행 됨 -->
+ 	<!-- DeadlockLoserDataAccessException 발생 시 retry-limit까지 재실행 함 -->
+ 	<!-- ValidationException 발생 시 rollback 하지 않음 -->
+	<batch:job id="boardUserjob">
+		<batch:step id="step0" next="step1">
+			<batch:tasklet ref="ftpGetRemoteFilesTasklet"/>
+		</batch:step>
+		<batch:step id="step1"  >			
+			<batch:tasklet transaction-manager="transactionManager" start-limit="3">
+				<batch:chunk reader="boardUserReader" writer="boardUserWriter" processor="boardUserProcessor" commit-interval="10" skip-limit="10" retry-limit="3" >
+					<batch:skippable-exception-classes>
+            			<batch:include class="java.lang.Exception"/>
+                		<batch:exclude class="java.io.FileNotFoundException"/>
+         			</batch:skippable-exception-classes>
+         			<batch:retryable-exception-classes>
+            			<batch:include class="org.springframework.dao.DeadlockLoserDataAccessException"/>
+         			</batch:retryable-exception-classes>
+				</batch:chunk>
+				<batch:no-rollback-exception-classes>
+         			<batch:include class="org.springframework.batch.item.validator.ValidationException"/>
+      			</batch:no-rollback-exception-classes>
+			</batch:tasklet>
+		</batch:step>
+		<!-- listener 종류 :
+			JobExecutionListener
+			StepExecutionListener
+			ChunkListener
+			ItemReadListener
+			ItemProcessListener
+			ItemWriteListener
+			SkipListener 
+		 -->
+		<batch:listeners>
+			<batch:listener ref="commonLoggingListener" />
+		</batch:listeners>
+	</batch:job>
+	
+	<bean id="boardUserReader" class="org.springframework.batch.item.file.FlatFileItemReader" scope="step">
+		<property name="resource" value="classpath:sample-data.csv" />
+		<property name="lineMapper">
+		    <bean class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
+			<property name="lineTokenizer">
+				<bean
+					class="org.springframework.batch.item.file.transform.DelimitedLineTokenizer">
+					<property name="names" value="id,passwd,userName,age,role" />
+				</bean>
+			</property>
+			<property name="fieldSetMapper">
+				<bean class="org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper">
+					<property name="prototypeBeanName" value="boardUser" />
+				</bean>
+			</property>
+		    </bean>
+		</property>
+	</bean>
+	
+	<bean id="boardUserWriter" class="org.springframework.batch.item.database.JdbcBatchItemWriter" scope="step">
+		<property name="dataSource" ref="dataSource"/>  
+		<property name="sql">  
+		   	<value>  
+		     	<![CDATA[  
+		     	insert into board_user(  
+		     	id, passwd, user_name, age, role)  
+		     	values ( :id, :passwd, :userName, :age, :role)  
+		     	]]>  
+		   	</value>  
+	 	</property>  
+	 	<property name="itemSqlParameterSourceProvider">  
+	 		<bean class="org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider" />  
+	 	</property>  
+	 </bean>
+	 
+	 <bean id="fileConfirmTasklet" class="com.naver.batch.tasklet.FileConfirmTasklet">
+	    <property name="resource">
+	        <bean id="resource" class="org.springframework.core.io.ClassPathResource">
+	            <constructor-arg value="sample-data.csv" />
+	        </bean>
+	    </property>
+	</bean>
+	
+	<bean id="ftpGetRemoteFilesTasklet" class="com.naver.batch.tasklet.FtpGetRemoteFilesTasklet">
+	    <property name="ftpClientFactory" ref="ftpClientFactory" />
+	    <property name="localDirectory" value="D:/home1/irteam" />
+	    <property name="remoteDirectory" value="/home1/ljk2491/" />
+	    <property name="fileNamePattern" value="*.pem" />
+	</bean>
+</beans>
